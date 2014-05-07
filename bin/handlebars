@@ -96,7 +96,7 @@ if (argv.known) {
 var output = [];
 if (!argv.simple) {
   if (argv.amd) {
-    output.push('define([\'' + argv.handlebarPath + 'handlebars\'], function(Handlebars) {\n');
+    output.push('define([\'' + argv.handlebarPath + 'handlebars\', \'module\'], function(Handlebars, module) {\n');
   } else if (argv.commonjs) {
     output.push('var Handlebars = require("' + argv.commonjs + '");');
   } else {
@@ -134,8 +134,9 @@ function processTemplate(template, root) {
     if (argv.simple) {
       output.push(handlebars.precompile(data, options) + '\n');
     } else {
-      if(argv._.length === 1){ output.push('return '); }
       output.push('templates[\'' + template + '\'] = template(' + handlebars.precompile(data, options) + ');\n');
+      output.push('if(module) templates[\'' + template + '\'].module = module;\n');
+      if(argv._.length === 1){ output.push('return templates[\'' + template + '\'];'); }
     }
   }
 }
