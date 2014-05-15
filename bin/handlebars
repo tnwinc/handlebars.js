@@ -39,6 +39,12 @@ var optimist = require('optimist')
         'description': 'Minimize output',
         'alias': 'min'
       },
+      'n': {
+        'type': 'string',
+        'description': 'Template namespace',
+        'alias': 'namespace',
+        'default': 'Handlebars.templates'
+      },
       's': {
         'type': 'boolean',
         'description': 'Output template function only.',
@@ -48,10 +54,40 @@ var optimist = require('optimist')
         'type': 'string',
         'description': 'Template root. Base value that will be stripped from template names.',
         'alias': 'root'
+      },
+      'p' : {
+        'type': 'boolean',
+        'description': 'Compiling a partial template',
+        'alias': 'partial'
+      },
+      'd' : {
+        'type': 'boolean',
+        'description': 'Include data when compiling',
+        'alias': 'data'
+      },
+      'e': {
+        'type': 'string',
+        'description': 'Template extension.',
+        'alias': 'extension',
+        'default': 'handlebars'
+      },
+      'b': {
+        'type': 'boolean',
+        'description': 'Removes the BOM (Byte Order Mark) from the beginning of the templates.',
+        'alias': 'bom'
+      },
+      'v': {
+        'type': 'boolean',
+        'description': 'Prints the current compiler version',
+        'alias': 'version'
       }
     })
 
     .check(function(argv) {
+      if (argv.version) {
+        return;
+      }
+
       var template = [0];
       if (!argv._.length) {
         throw 'Must define at least one template or directory.';
@@ -75,12 +111,16 @@ var optimist = require('optimist')
     });
 
 var fs = require('fs'),
-    handlebars = require('../lib/handlebars'),
+    handlebars = require('../lib'),
     basename = require('path').basename,
     uglify = require('uglify-js');
 
 var argv = optimist.argv,
     template = argv._[0];
+
+if (argv.version) {
+  return console.log(handlebars.VERSION);
+}
 
 // Convert the known list into a hash
 var known = {};
@@ -93,35 +133,51 @@ if (argv.known) {
   }
 }
 
+// Build file extension pattern
+var extension = argv.extension.replace(/[\\^$*+?.():=!|{}\-\[\]]/g, function(arg) { return '\\' + arg; });
+extension = new RegExp('\\.' + extension + '$');
+
 var output = [];
 if (!argv.simple) {
   if (argv.amd) {
-    output.push('define([\'' + argv.handlebarPath + 'handlebars\', \'module\'], function(Handlebars, module) {\n');
+    output.push('define([\'' + argv.handlebarPath + 'handlebars.runtime\', \'module\'], function(Handlebars, module) {\n  Handlebars = Handlebars["default"];');
   } else if (argv.commonjs) {
     output.push('var Handlebars = require("' + argv.commonjs + '");');
   } else {
     output.push('(function() {\n');
   }
-  output.push('  var template = Handlebars.template, templates = Handlebars.templates = Handlebars.templates || {};\n');
+  output.push('  var template = Handlebars.template, templates = ');
+  output.push(argv.namespace);
+  output.push(' = ');
+  output.push(argv.namespace);
+  output.push(' || {};\n');
 }
-function processTemplate(template, root) {
+function processTemplate(template, root, explicit) {
   var path = template,
       stat = fs.statSync(path);
   if (stat.isDirectory()) {
     fs.readdirSync(template).map(function(file) {
       var path = template + '/' + file;
 
-      if (/\.handlebars$/.test(path) || fs.statSync(path).isDirectory()) {
+      if (extension.test(path) || fs.statSync(path).isDirectory()) {
         processTemplate(path, root || template);
       }
     });
-  } else {
+  } else if (explicit || extension.test(path)) {
     var data = fs.readFileSync(path, 'utf8');
+
+    if (argv.bom && data.indexOf('\uFEFF') === 0) {
+      data = data.substring(1);
+    }
 
     var options = {
       knownHelpers: known,
       knownHelpersOnly: argv.o
     };
+
+    if (argv.data) {
+      options.data = true;
+    }
 
     // Clean the template name
     if (!root) {
@@ -129,11 +185,19 @@ function processTemplate(template, root) {
     } else if (template.indexOf(root) === 0) {
       template = template.substring(root.length+1);
     }
-    template = template.replace(/\.handlebars$/, '');
+    template = template.replace(extension, '');
 
     if (argv.simple) {
       output.push(handlebars.precompile(data, options) + '\n');
+    } else if (argv.partial) {
+      if(argv.amd && (argv._.length == 1 && !fs.statSync(argv._[0]).isDirectory())) {
+        output.push('return ');
+      }
+      output.push('Handlebars.partials[\'' + template + '\'] = template(' + handlebars.precompile(data, options) + ');\n');
     } else {
+      if(argv.amd && (argv._.length == 1 && !fs.statSync(argv._[0]).isDirectory())) {
+        output.push('return ');
+      }
       output.push('templates[\'' + template + '\'] = template(' + handlebars.precompile(data, options) + ');\n');
       output.push('if(module) templates[\'' + template + '\'].module = module;\n');
       if(argv._.length === 1){ output.push('return templates[\'' + template + '\'];'); }
@@ -142,12 +206,19 @@ function processTemplate(template, root) {
 }
 
 argv._.forEach(function(template) {
-  processTemplate(template, argv.root);
+  processTemplate(template, argv.root, true);
 });
 
 // Output the content
 if (!argv.simple) {
   if (argv.amd) {
+    if(argv._.length > 1 || (argv._.length == 1 && fs.statSync(argv._[0]).isDirectory())) {
+      if(argv.partial){
+        output.push('return Handlebars.partials;\n');
+      } else {
+        output.push('return templates;\n');
+      }
+    }
     output.push('});');
   } else if (!argv.commonjs) {
     output.push('})();');
@@ -156,10 +227,7 @@ if (!argv.simple) {
 output = output.join('');
 
 if (argv.min) {
-  var ast = uglify.parser.parse(output);
-  ast = uglify.uglify.ast_mangle(ast);
-  ast = uglify.uglify.ast_squeeze(ast);
-  output = uglify.uglify.gen_code(ast);
+  output = uglify.minify(output, {fromString: true}).code;
 }
 
 if (argv.output) {
