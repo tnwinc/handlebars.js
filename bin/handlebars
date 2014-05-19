@@ -140,7 +140,7 @@ extension = new RegExp('\\.' + extension + '$');
 var output = [];
 if (!argv.simple) {
   if (argv.amd) {
-    output.push('define([\'' + argv.handlebarPath + 'handlebars.runtime\', \'module\'], function(Handlebars, module) {\n  Handlebars = Handlebars["default"];');
+    output.push('define([\'' + argv.handlebarPath + 'handlebars.runtime\', \'module\'], function(Handlebars, module) {\n ');
   } else if (argv.commonjs) {
     output.push('var Handlebars = require("' + argv.commonjs + '");');
   } else {
@@ -190,14 +190,8 @@ function processTemplate(template, root, explicit) {
     if (argv.simple) {
       output.push(handlebars.precompile(data, options) + '\n');
     } else if (argv.partial) {
-      if(argv.amd && (argv._.length == 1 && !fs.statSync(argv._[0]).isDirectory())) {
-        output.push('return ');
-      }
       output.push('Handlebars.partials[\'' + template + '\'] = template(' + handlebars.precompile(data, options) + ');\n');
     } else {
-      if(argv.amd && (argv._.length == 1 && !fs.statSync(argv._[0]).isDirectory())) {
-        output.push('return ');
-      }
       output.push('templates[\'' + template + '\'] = template(' + handlebars.precompile(data, options) + ');\n');
       output.push('if(module) templates[\'' + template + '\'].module = module;\n');
       if(argv._.length === 1){ output.push('return templates[\'' + template + '\'];'); }
