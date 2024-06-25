@@ -1,3 +1,6 @@
+# Archive Note
+This repo is obsolete in its current internal use. If you'd like to use Handlebars, find the maintained repo version instead of this one.
+
 [![Travis Build Status](https://travis-ci.org/wycats/handlebars.js.png?branch=master)](https://travis-ci.org/wycats/handlebars.js)
 [![Selenium Test Status](https://saucelabs.com/buildstatus/handlebars)](https://saucelabs.com/u/handlebars)
 
